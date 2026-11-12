@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: API Everything - Instagram connector
+  version: 1.0.0
+  description: >
+    Self-hosted, free connector. Collects profile stats and posts (URL,
+    description, hashtags, comments, date, likes, photos) from an Instagram
+    profile URL. There is no central service: each user runs their own instance
+    and supplies their own session cookie. Optional rotating proxies can be
+    configured through IG_PROXY_* environment variables.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local instance
+paths:
+  /health:
+    get:
+      summary: Service health, session/account state, proxy pool and check summary
+      responses:
+        "200":
+          description: OK
+  /v1/session:
+    get:
+      summary: Session verification result and the account behind the cookie
+      description: >
+        At startup the connector resolves IG_SESSIONID to an Instagram account.
+        This endpoint exposes that result without triggering a new request.
+        Also includes a compact summary of the startup proxy health check.
+      responses:
+        "200":
+          description: Session state
+  /v1/diagnostics:
+    get:
+      summary: Test each post-fetching strategy against one username
+      description: >
+        Runs every configured strategy once and reports ok / posts / latency /
+        error code. Use it to find the source that still answers for your
+        session, then pin it with IG_POSTS_STRATEGIES.
+      parameters:
+        - in: query
+          name: username
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Per-strategy results
+        "400":
+          description: Invalid username
+  /v1/proxies:
+    get:
+      summary: Full startup proxy health check results
+      description: >
+        Returns the proxy pool configuration plus per-proxy liveness, country
+        code and latency in milliseconds. Credentials are always redacted.
+      responses:
+        "200":
+          description: Proxy pool and check results
+  /v1/instagram/{username}:
+    get:
+      summary: Profile stats (works with or without a session)
+      description: >
+        With a session, exact counts come from the internal web API and the
+        anonymous og:description path is used as a fallback. Without a session,
+        only the anonymous path is used and counts are rounded (e.g. 399K).
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema: { type: string }
+          example: kametolol
+      responses:
+        "200":
+          description: Profile stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+                  followers: { type: integer }
+                  following: { type: integer }
+                  posts: { type: integer }
+                  raw: { type: string }
+                  source: { type: string }
+        "404": { description: User not found }
+        "502": { description: Instagram returned an unexpected response }
+  /v1/instagram/{username}/posts:
+    get:
+      summary: Profile posts (no session or proxy needed for public profiles)
+      description: >
+        Posts come from Instagram's logged-out profile grid query and work
+        without any IG_SESSIONID. Set IG_ENRICH_POSTS=1 to also fill likes,
+        comment counts and exact timestamps. A session is only needed for
+        private profiles.
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 12 }
+          description: Number of posts. Pages of 12 are fetched automatically.
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: The nextCursor value from the previous response.
+      responses:
+        "200":
+          description: Normalized posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+                  profile: { $ref: "#/components/schemas/Profile" }
+                  count: { type: integer }
+                  posts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Post" }
+                  nextCursor: { type: string, nullable: true }
+                  hasMore: { type: boolean }
+                  source: { type: string }
+                  strategy: { type: string }
+        "400": { description: Invalid parameters }
+        "401": { description: IG_SESSIONID missing or expired }
+        "403": { description: Private profile }
+        "429": { description: Instagram throttling, see Retry-After }
+        "502": { description: Unexpected Instagram response }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Optional, only enforced when API_KEY is set in .env.
+  schemas:
+    Profile:
+      type: object
+      description: >
+        Exact counts come from Instagram's logged-out profile query; no session
+        is required. `source` is anon_user_info, og:description or
+        web_profile_info depending on what answered.
+      properties:
+        username: { type: string }
+        profileId: { type: string, nullable: true }
+        followers: { type: integer, nullable: true, example: 399230 }
+        following: { type: integer, nullable: true, example: 368 }
+        posts: { type: integer, nullable: true, example: 35 }
+        fullName: { type: string, nullable: true }
+        biography: { type: string, nullable: true }
+        isPrivate: { type: boolean }
+        isVerified: { type: boolean }
+        isBusiness: { type: boolean }
+        profilePicUrl: { type: string, format: uri, nullable: true }
+        externalUrl: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        bioLinks:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string, nullable: true }
+              url: { type: string }
+        source: { type: string }
+    Post:
+      type: object
+      properties:
+        url: { type: string, format: uri, example: "https://www.instagram.com/p/Cxxxx/" }
+        shortcode: { type: string }
+        userPosted: { type: string }
+        description: { type: string }
+        hashtags:
+          type: array
+          items: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+        numComments: { type: integer, nullable: true }
+        datePosted: { type: string, format: date-time, nullable: true }
+        timestamp: { type: integer, nullable: true }
+        likes: { type: integer, nullable: true }
+        photos:
+          type: array
+          items: { type: string, format: uri }
+        videos:
+          type: array
+          items: { type: string, format: uri }
+        type:
+          type: string
+          enum: [image, video, carousel, reel]
+        isVideo: { type: boolean }
+        location: { type: string, nullable: true }
+        altText: { type: string, nullable: true }

@@ -1,0 +1,20 @@
+{
+  "name": "@api-everything/instagram-connector",
+  "version": "1.0.0",
+  "description": "Self-hostable, free Instagram profile & posts API",
+  "license": "MIT",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --env-file=.env server.js",
+    "demo": "node main.js",
+    "test": "node --test tests/*.test.js tests/unit.js"
+  },
+  "dependencies": {
+    "axios": "^1.21.1",
+    "cheerio": "^1.2.0"
+  }
+}
