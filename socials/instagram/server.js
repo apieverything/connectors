@@ -262,15 +262,23 @@ async function handle(req, res) {
       res.locals.note = `${result.count} posts`;
       return send(res, 200, result);
     }
-    const result = await getProfileStats(username, readSession());
+    // Both sources are independent. If the anonymous HTML page is challenged
+    // by an exit IP, the exact GraphQL profile query can still answer.
+    let stats = null;
+    let statsError = null;
+    try {
+      stats = await getProfileStats(username, readSession());
+    } catch (err) {
+      statsError = err.code ?? "UNKNOWN";
+    }
     const exact = await getProfile(username, readSession());
-    res.locals.note = `${result.source}+${exact.source}`;
+    res.locals.note = stats ? `${stats.source}+${exact.source}` : exact.source;
     return send(res, 200, {
-      ...result,
+      ...(stats ?? {}),
       ...exact,
-      raw: result.raw,
-      source: result.source,
+      ...(stats ? { raw: stats.raw, source: stats.source } : {}),
       exactSource: exact.source,
+      ...(statsError ? { statsFallback: statsError } : {}),
     });
   } catch (err) {
     return fail(res, err);

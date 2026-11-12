@@ -12,7 +12,8 @@ connectors/
 ├── README.md
 ├── services/              Reserved for SaaS and utility connectors (empty)
 └── socials/
-    └── instagram/         Instagram profile and posts API
+    ├── instagram/         Instagram profile and posts API
+    └── tiktok/            TikTok profile and posts API
 ```
 
 ## Available connectors
@@ -20,11 +21,18 @@ connectors/
 | Connector | Path | Status | Runtime | Provides |
 | --- | --- | --- | --- | --- |
 | Instagram | [`socials/instagram`](socials/instagram/README.md) | Active | Node.js 22+ | Exact profile metadata; posts with URL, author, caption, hashtags, mentions, comment count, date, likes and media URLs |
+| TikTok | [`socials/tiktok`](socials/tiktok/README.md) | Active (profile) / In progress (posts) | Node.js 22+ | Exact profile metadata; posts through a strategy chain (browser, SSR, signed API, explicit video ids) |
 
-Instagram's internal endpoints and GraphQL `doc_id`s change without notice. The
-connector keeps them configurable through environment variables and falls back
-to independent data sources; see the
-[troubleshooting section](socials/instagram/README.md#troubleshooting).
+Both connectors share the same interface: `/health`, `/v1/session`,
+`/v1/diagnostics`, `/v1/proxies`, `/v1/<service>/:username`,
+`/v1/<service>/:username/posts` and `/openapi.yaml`, with identical response
+shapes, coloured logs, `Ctrl+R` hot reload and optional rotating proxies.
+
+Instagram's internal endpoints and GraphQL `doc_id`s change without notice.
+TikTok signs its post-list API, so its `/posts` endpoint relies on a strategy
+chain rather than a single anonymous query. Both keep their sources
+configurable through environment variables; see each connector's
+troubleshooting section.
 
 `services/` is currently empty and reserved for future connectors.
 
@@ -44,10 +52,21 @@ Public posts and exact profile counts work without an Instagram account and
 without a proxy. A session cookie (`IG_SESSIONID`) is only required for private
 profiles. Rotating residential proxies are optional and configured per instance.
 
+TikTok uses the same layout:
+
+```bash
+cd ../tiktok
+cp .env.example .env
+docker compose up -d
+curl "http://localhost:3000/v1/tiktok/khaby.lame"
+```
+
 Documentation:
-[README](socials/instagram/README.md) ·
-[OpenAPI schema](socials/instagram/openapi.yaml) ·
-[DevTools session helper](socials/instagram/scripts/devtools-session.js)
+[Instagram README](socials/instagram/README.md) ·
+[Instagram OpenAPI](socials/instagram/openapi.yaml) ·
+[DevTools session helper](socials/instagram/scripts/devtools-session.js) ·
+[TikTok README](socials/tiktok/README.md) ·
+[TikTok OpenAPI](socials/tiktok/openapi.yaml)
 
 ## Connector contract
 
@@ -65,6 +84,19 @@ Every connector is expected to ship:
 
 Conventions: no credentials committed to the repository, secrets never logged,
 no paid dependency, and no intermediary service required to operate.
+
+## Smoke test and demonstration
+
+[`scripts/demo.sh`](scripts/demo.sh) audits both `.env` files, starts both
+connectors on free ports, exercises every route (including error cases) and
+prints a live demonstration. Secrets are never printed.
+
+```bash
+./scripts/demo.sh                 # audit + all routes + demo
+./scripts/demo.sh --direct        # ignore proxies for the runtime
+./scripts/demo.sh --fast          # shorter delay between upstream calls
+./scripts/demo.sh --audit-only    # only validate the .env files
+```
 
 ## Adding a connector
 

@@ -1,0 +1,165 @@
+openapi: 3.0.3
+info:
+  title: API Everything - TikTok connector
+  version: 1.0.0
+  description: >
+    Self-hosted, free connector exposing TikTok profile metadata and posts
+    through the same interface as the Instagram connector. No central service:
+    each user runs their own instance. Public profiles need no account.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local instance
+paths:
+  /health:
+    get:
+      summary: Service health, session state, proxy pool and check summary
+      responses:
+        "200": { description: OK }
+  /v1/session:
+    get:
+      summary: Session verification result
+      responses:
+        "200": { description: Session state }
+  /v1/diagnostics:
+    get:
+      summary: Test each post-fetching strategy against one username
+      parameters:
+        - in: query
+          name: username
+          required: true
+          schema: { type: string }
+        - in: query
+          name: ids
+          schema: { type: string }
+          description: Comma-separated video ids for the video_ids strategy.
+      responses:
+        "200": { description: Per-strategy results }
+        "400": { description: Invalid username }
+  /v1/proxies:
+    get:
+      summary: Full startup proxy health check results
+      responses:
+        "200": { description: Proxy pool and check results }
+  /v1/tiktok/{username}:
+    get:
+      summary: Profile metadata (exact counts, no session required)
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema: { type: string }
+          example: khaby.lame
+      responses:
+        "200":
+          description: Profile metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "404": { description: User not found }
+        "403": { description: Private account }
+  /v1/tiktok/{username}/posts:
+    get:
+      summary: Profile posts (same response shape as the Instagram connector)
+      description: >
+        Tries several independent sources. TikTok signs its item_list API, so
+        enabling TT_BROWSER=1 (Playwright) is the recommended way to get the
+        full post list without a session. Alternatively pass explicit video
+        ids with ?ids=...
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 12 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: ids
+          schema: { type: string }
+          description: Comma-separated video ids to resolve via video pages / oEmbed.
+      responses:
+        "200":
+          description: Normalized posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+                  profile: { $ref: "#/components/schemas/Profile" }
+                  count: { type: integer }
+                  posts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Post" }
+                  nextCursor: { type: string, nullable: true }
+                  hasMore: { type: boolean }
+                  source: { type: string }
+                  strategy: { type: string }
+        "400": { description: Invalid parameters }
+        "502": { description: All post sources failed, see details }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Optional, enforced only when API_KEY is set in .env.
+  schemas:
+    Profile:
+      type: object
+      properties:
+        username: { type: string }
+        profileId: { type: string, nullable: true }
+        secUid: { type: string, nullable: true }
+        followers: { type: integer, nullable: true }
+        following: { type: integer, nullable: true }
+        posts: { type: integer, nullable: true }
+        likes: { type: integer, nullable: true }
+        fullName: { type: string, nullable: true }
+        biography: { type: string, nullable: true }
+        isPrivate: { type: boolean }
+        isVerified: { type: boolean }
+        isOrganization: { type: boolean }
+        profilePicUrl: { type: string, format: uri, nullable: true }
+        bioLink: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        raw: { type: string, nullable: true }
+        source: { type: string }
+    Post:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        shortcode: { type: string }
+        userPosted: { type: string, nullable: true }
+        description: { type: string }
+        hashtags:
+          type: array
+          items: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+        numComments: { type: integer, nullable: true }
+        datePosted: { type: string, format: date-time, nullable: true }
+        timestamp: { type: integer, nullable: true }
+        likes: { type: integer, nullable: true }
+        photos:
+          type: array
+          items: { type: string, format: uri }
+        videos:
+          type: array
+          items: { type: string, format: uri }
+        type: { type: string, enum: [video] }
+        isVideo: { type: boolean }
+        location: { type: string, nullable: true }
+        altText: { type: string, nullable: true }
+        shares: { type: integer, nullable: true }
+        plays: { type: integer, nullable: true }
+        collects: { type: integer, nullable: true }
+        duration: { type: integer, nullable: true }
+        music: { type: string, nullable: true }
+        authorName: { type: string, nullable: true }

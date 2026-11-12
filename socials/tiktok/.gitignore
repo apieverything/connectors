@@ -1,0 +1,14 @@
+node_modules
+package-lock.json
+bun.lock
+
+# Secrets and local dumps: never commit
+.env
+.env.*
+!.env.example
+proxies.txt
+*.proxies
+*_export.json
+*.log
+*.json.tmp
+.DS_Store

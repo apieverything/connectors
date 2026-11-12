@@ -118,10 +118,14 @@ async function performRequest(method, path, { session, html, params, headers, pr
     );
   }
   if (loginWall(finalUrl, body, html)) {
+    // An anonymous request has no session to expire: a login redirect here
+    // means the exit IP was challenged, not that a cookie went stale.
     throw new InstagramError(
-      "IG_SESSION_EXPIRED",
-      "Redirected to the login page: the session is no longer valid.",
-      401
+      session ? "IG_SESSION_EXPIRED" : "IG_BLOCKED",
+      session
+        ? "Redirected to the login page: the session is no longer valid."
+        : "Instagram redirected this exit IP to the login page.",
+      session ? 401 : 502
     );
   }
 
