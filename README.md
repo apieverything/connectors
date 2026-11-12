@@ -1,0 +1,83 @@
+# Connectors
+
+Self-hostable connectors for [API Everything](../.profile/profile/README.md).
+
+Each connector is an independent HTTP service. There is no hosted instance and
+no mandatory gateway: you run it on your own machine and call it directly.
+
+## Repository layout
+
+```text
+connectors/
+├── README.md
+├── services/              Reserved for SaaS and utility connectors (empty)
+└── socials/
+    └── instagram/         Instagram profile and posts API
+```
+
+## Available connectors
+
+| Connector | Path | Status | Runtime | Provides |
+| --- | --- | --- | --- | --- |
+| Instagram | [`socials/instagram`](socials/instagram/README.md) | Active | Node.js 22+ | Exact profile metadata; posts with URL, author, caption, hashtags, mentions, comment count, date, likes and media URLs |
+
+Instagram's internal endpoints and GraphQL `doc_id`s change without notice. The
+connector keeps them configurable through environment variables and falls back
+to independent data sources; see the
+[troubleshooting section](socials/instagram/README.md#troubleshooting).
+
+`services/` is currently empty and reserved for future connectors.
+
+## Quick start
+
+```bash
+cd socials/instagram
+cp .env.example .env
+docker compose up -d
+
+curl "http://localhost:3000/health"
+curl "http://localhost:3000/v1/instagram/kametolol"
+curl "http://localhost:3000/v1/instagram/kametolol/posts?limit=12"
+```
+
+Public posts and exact profile counts work without an Instagram account and
+without a proxy. A session cookie (`IG_SESSIONID`) is only required for private
+profiles. Rotating residential proxies are optional and configured per instance.
+
+Documentation:
+[README](socials/instagram/README.md) ·
+[OpenAPI schema](socials/instagram/openapi.yaml) ·
+[DevTools session helper](socials/instagram/scripts/devtools-session.js)
+
+## Connector contract
+
+Every connector is expected to ship:
+
+| File | Purpose |
+| --- | --- |
+| `README.md` | Setup, configuration, troubleshooting |
+| `openapi.yaml` | API schema, also served at `GET /openapi.yaml` |
+| `.env.example` | Documented configuration, never secrets |
+| `Dockerfile`, `docker-compose.yml` | One-command self-hosting |
+| `package.json` | `start`, `dev` and `test` scripts |
+| `tests/` | Offline tests with no external calls |
+| `GET /health` | Liveness probe |
+
+Conventions: no credentials committed to the repository, secrets never logged,
+no paid dependency, and no intermediary service required to operate.
+
+## Adding a connector
+
+1. Create `socials/<name>/` or `services/<name>/`.
+2. Follow the contract above and expose `GET /health`.
+3. Add a row to the table in this file.
+4. Add offline tests before opening a pull request.
+
+## Status
+
+Project under development. Connectors may have different stability levels
+depending on the integrated service.
+
+## License
+
+MIT. See the [organisation README](../.profile/profile/README.md).
