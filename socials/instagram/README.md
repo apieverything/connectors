@@ -758,3 +758,14 @@ scripts/devtools-session.js        one-paste DevTools .env generator
 tests/devtools-session.test.js     tests the snippet without a browser
 openapi.yaml                       API schema
 ```
+
+## License
+
+MIT License with an attribution notice — see
+[`LICENSE.md`](../../LICENSE.md). Use, modification and redistribution are
+permitted; any project using this connector elsewhere must visibly credit
+**API Everything**.
+
+> Automated access to Instagram is subject to Instagram's Terms of Use. This
+> connector is provided for self-hosted use; operators are responsible for how
+> they use it.

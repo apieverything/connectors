@@ -80,4 +80,7 @@ depending on the integrated service.
 
 ## License
 
-MIT. See the [organisation README](../.profile/profile/README.md).
+MIT License with an attribution notice. See [LICENSE.md](LICENSE.md).
+
+Use, modification and redistribution are permitted. Any project using this
+work elsewhere must visibly credit **API Everything**.
