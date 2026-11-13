@@ -1,0 +1,209 @@
+openapi: 3.0.3
+info:
+  title: API Everything - LinkedIn connector
+  version: 1.0.0
+  description: >
+    Self-hosted, free connector for LinkedIn job postings, company metadata and
+    aggregate hiring signals. All public endpoints work anonymously, without a
+    cookie or a proxy. People profiles are disabled by default and are intended
+    for self-hosted use only: they contain third-party personal data.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local instance
+paths:
+  /health:
+    get:
+      summary: Service health, proxy pool and data-policy state
+      responses:
+        "200": { description: OK }
+  /v1/session:
+    get:
+      summary: Session verification result
+      responses:
+        "200": { description: Session state }
+  /v1/diagnostics:
+    get:
+      summary: Test each job source
+      parameters:
+        - in: query
+          name: keywords
+          schema: { type: string, default: developer }
+        - in: query
+          name: location
+          schema: { type: string, default: France }
+      responses:
+        "200": { description: Per-strategy results }
+  /v1/proxies:
+    get:
+      summary: Full startup proxy health check results
+      responses:
+        "200": { description: Proxy pool and check results }
+  /v1/linkedin/jobs/search:
+    get:
+      summary: Search job postings (no personal data)
+      parameters:
+        - in: query
+          name: keywords
+          required: true
+          schema: { type: string }
+          example: python
+        - in: query
+          name: location
+          required: true
+          schema: { type: string }
+          example: France
+        - in: query
+          name: start
+          schema: { type: integer, minimum: 0, default: 0 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+      responses:
+        "200":
+          description: Normalized jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query: { type: object }
+                  count: { type: integer }
+                  jobs:
+                    type: array
+                    items: { $ref: "#/components/schemas/Job" }
+                  nextStart: { type: integer, nullable: true }
+                  hasMore: { type: boolean }
+                  strategy: { type: string }
+                  failures: { type: array, items: { type: object } }
+        "400": { description: Missing keywords/location or invalid limit }
+  /v1/linkedin/jobs/{id}:
+    get:
+      summary: Full job detail (description, criteria, JSON-LD fields)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+          example: "4486054169"
+      responses:
+        "200":
+          description: Job detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { description: Job not found }
+  /v1/linkedin/company/{slug}:
+    get:
+      summary: Company metadata and recent posts (legal-entity data)
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+          example: linkedin
+      responses:
+        "200":
+          description: Company
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+        "404": { description: Company not found }
+  /v1/linkedin/signals/hiring:
+    get:
+      summary: Aggregate hiring signals (counts only, no personal data)
+      parameters:
+        - in: query
+          name: skill
+          required: true
+          schema: { type: string, example: python }
+        - in: query
+          name: country
+          required: true
+          schema: { type: string, example: France }
+        - in: query
+          name: window
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        - in: query
+          name: pages
+          schema: { type: integer, minimum: 1, maximum: 10, default: 3 }
+      responses:
+        "200": { description: Aggregated counts by city, company and date }
+        "400": { description: Missing skill or country }
+  /v1/linkedin/people/{slug}:
+    get:
+      summary: >-
+        Profile metadata (DISABLED by default). Third-party personal data:
+        self-hosted use only, never exposed by the hosted service.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+          example: reidhoffman
+      responses:
+        "200": { description: Profile }
+        "403": { description: LI_PEOPLE_DISABLED }
+        "404": { description: Profile not found }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Optional, enforced only when API_KEY is set in .env.
+  schemas:
+    Job:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        url: { type: string, format: uri, nullable: true }
+        title: { type: string }
+        company: { type: string }
+        companyUrl: { type: string, nullable: true }
+        location: { type: string }
+        city: { type: string, nullable: true }
+        region: { type: string, nullable: true }
+        country: { type: string, nullable: true }
+        countryCode: { type: string, nullable: true, example: FR }
+        datePosted: { type: string, nullable: true }
+        validThrough: { type: string, nullable: true }
+        employmentType: { type: string, nullable: true }
+        seniority: { type: string, nullable: true }
+        industries: { type: string, nullable: true }
+        skills:
+          type: array
+          nullable: true
+          items: { type: string }
+        description: { type: string, nullable: true }
+        source: { type: string }
+    Company:
+      type: object
+      properties:
+        slug: { type: string }
+        name: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        followers: { type: integer, nullable: true }
+        foundedYear: { type: integer, nullable: true }
+        employeesReported:
+          type: integer
+          nullable: true
+          description: Value from LinkedIn schema.org markup; not a reliable headcount.
+        logo: { type: string, format: uri, nullable: true }
+        website: { type: string, nullable: true }
+        city: { type: string, nullable: true }
+        countryCode: { type: string, nullable: true }
+        posts:
+          type: array
+          items: { $ref: "#/components/schemas/Post" }
+        source: { type: string }
+    Post:
+      type: object
+      properties:
+        url: { type: string, nullable: true }
+        headline: { type: string }
+        datePublished: { type: string, nullable: true }
+        likes: { type: integer, nullable: true }
+        image: { type: string, nullable: true }
+        author: { type: string, nullable: true }

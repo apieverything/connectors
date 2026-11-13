@@ -1,0 +1,10 @@
+node_modules
+.env
+proxies.txt
+*.proxies
+*_export.json
+.git
+.gitignore
+*.log
+tests
+README.md

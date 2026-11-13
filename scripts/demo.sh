@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # API Everything - connector smoke test, .env audit and demonstration.
 #
-#   ./demo.sh                    audit + start both connectors + test every route
+#   ./demo.sh                    audit + start all connectors + test every route
 #   ./demo.sh --direct           same, but ignore proxies for the runtime
 #   ./demo.sh --audit-only       only audit the .env files
-#   ./demo.sh --ig-only / --tt-only
+#   ./demo.sh --ig-only / --tt-only / --li-only
 #   ./demo.sh --fast             lower the per-request delay for a quicker run
 #
 # Secrets are never printed. Proxy credentials are shown as ***:***@host.
@@ -13,18 +13,23 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IG_DIR="$ROOT/socials/instagram"
 TT_DIR="$ROOT/socials/tiktok"
+LI_DIR="$ROOT/socials/linkedin"
 IG_PORT="${IG_PORT:-}"
 TT_PORT="${TT_PORT:-}"
+LI_PORT="${LI_PORT:-}"
 EXPLICIT_IG_PORT=0
 EXPLICIT_TT_PORT=0
+EXPLICIT_LI_PORT=0
 IG_USER="${IG_USER:-kametolol}"
 TT_USER="${TT_USER:-khaby.lame}"
+LI_COMPANY="${LI_COMPANY:-linkedin}"
 
 DIRECT=0
 AUDIT_ONLY=0
 FAST=0
 RUN_IG=1
 RUN_TT=1
+RUN_LI=1
 
 # Ask the OS for a free port so consecutive runs never collide, even if a
 # previous server is still shutting down.
@@ -34,7 +39,9 @@ free_port() {
 
 [[ $EXPLICIT_IG_PORT -eq 0 ]] && IG_PORT="$(free_port)"
 [[ $EXPLICIT_TT_PORT -eq 0 ]] && TT_PORT="$(free_port)"
+[[ $EXPLICIT_LI_PORT -eq 0 ]] && LI_PORT="$(free_port)"
 while [[ "$TT_PORT" == "$IG_PORT" ]]; do TT_PORT="$(free_port)"; done
+while [[ "$LI_PORT" == "$IG_PORT" || "$LI_PORT" == "$TT_PORT" ]]; do LI_PORT="$(free_port)"; done
 
 usage() {
   sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -46,10 +53,12 @@ while [[ $# -gt 0 ]]; do
     --direct) DIRECT=1 ;;
     --audit-only) AUDIT_ONLY=1 ;;
     --fast) FAST=1 ;;
-    --ig-only) RUN_TT=0 ;;
-    --tt-only) RUN_IG=0 ;;
+    --ig-only) RUN_TT=0; RUN_LI=0 ;;
+    --tt-only) RUN_IG=0; RUN_LI=0 ;;
+    --li-only) RUN_IG=0; RUN_TT=0 ;;
     --ig-port) IG_PORT="$2"; EXPLICIT_IG_PORT=1; shift ;;
     --tt-port) TT_PORT="$2"; EXPLICIT_TT_PORT=1; shift ;;
+    --li-port) LI_PORT="$2"; EXPLICIT_LI_PORT=1; shift ;;
     -h|--help) usage ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
@@ -65,7 +74,7 @@ else
 fi
 
 PASS=0; WARNS=0; FAILS=0; NOTES=0
-TOTAL=$(( (RUN_IG + RUN_TT) ))
+TOTAL=$(( (RUN_IG + RUN_TT + RUN_LI) ))
 PIDS_FILE="$(mktemp)"
 LOGDIR="$(mktemp -d)"
 JS="$(mktemp)"
@@ -159,7 +168,7 @@ function audit(envPath, examplePath, label, prefix, gitignorePath) {
   }
   const level = env.m.get("LOG_LEVEL");
   if (level && !/^(debug|info|warn|error|silent)$/.test(level)) push("WARN", `${label}: LOG_LEVEL="${level}" is not a valid level`);
-  for (const flag of ["IG_BROWSER", "TT_BROWSER", "IG_PROXY_CHECK", "TT_PROXY_CHECK", "IG_PROXY_STICKY", "TT_PROXY_STICKY", "IG_ENRICH_POSTS"]) {
+  for (const flag of ["IG_BROWSER", "TT_BROWSER", "IG_PROXY_CHECK", "TT_PROXY_CHECK", "LI_PROXY_CHECK", "IG_PROXY_STICKY", "TT_PROXY_STICKY", "LI_PROXY_STICKY", "IG_ENRICH_POSTS", "LI_ALLOW_PEOPLE"]) {
     if (env.m.has(flag) && !/^[01]$/.test(env.m.get(flag))) push("WARN", `${label}: ${flag} should be 0 or 1`);
   }
 
@@ -221,13 +230,22 @@ audit_one() {
 
 [[ $RUN_IG -eq 1 ]] && audit_one "$IG_DIR" "Instagram" "IG"
 [[ $RUN_TT -eq 1 ]] && audit_one "$TT_DIR" "TikTok" "TT"
+[[ $RUN_LI -eq 1 ]] && audit_one "$LI_DIR" "LinkedIn" "LI"
 
 IG_API_KEY="$(env_value "$IG_DIR/.env" API_KEY)"
 TT_API_KEY="$(env_value "$TT_DIR/.env" API_KEY)"
+LI_API_KEY="$(env_value "$LI_DIR/.env" API_KEY)"
 IG_PORT_FILE="$(env_value "$IG_DIR/.env" PORT)"
 TT_PORT_FILE="$(env_value "$TT_DIR/.env" PORT)"
+LI_PORT_FILE="$(env_value "$LI_DIR/.env" PORT)"
 if [[ $RUN_IG -eq 1 && $RUN_TT -eq 1 && -n "$IG_PORT_FILE" && "$IG_PORT_FILE" == "$TT_PORT_FILE" ]]; then
-  warn "Both .env files declare PORT=$IG_PORT_FILE - the demo uses $IG_PORT / $TT_PORT instead"
+  warn "Instagram and TikTok .env both declare PORT=$IG_PORT_FILE - the demo uses $IG_PORT / $TT_PORT instead"
+fi
+if [[ $RUN_LI -eq 1 && -n "$LI_PORT_FILE" ]]; then
+  note "LinkedIn .env declares PORT=$LI_PORT_FILE - the demo uses $LI_PORT instead"
+fi
+if [[ $RUN_LI -eq 1 && "$(env_value "$LI_DIR/.env" LI_ALLOW_PEOPLE)" == "1" ]]; then
+  warn "LinkedIn LI_ALLOW_PEOPLE=1 in .env - people profiles are enabled (personal data)"
 fi
 [[ $DIRECT -eq 1 ]] && note "--direct: proxies disabled for the runtime (audit still checks them)"
 
@@ -237,7 +255,7 @@ if [[ $AUDIT_ONLY -eq 1 ]]; then
   [[ $FAILS -eq 0 ]] && exit 0 || exit 1
 fi
 
-# ---- phase 2: start both services --------------------------------------
+# ---- phase 2: start all services ---------------------------------------
 section "2/4  Starting connectors"
 start_one() {
   local dir="$1" port="$2" name="$3" prefix="$4"
@@ -272,6 +290,7 @@ start_one() {
 }
 [[ $RUN_IG -eq 1 ]] && start_one "$IG_DIR" "$IG_PORT" "instagram" "IG"
 [[ $RUN_TT -eq 1 ]] && start_one "$TT_DIR" "$TT_PORT" "tiktok" "TT"
+[[ $RUN_LI -eq 1 ]] && start_one "$LI_DIR" "$LI_PORT" "linkedin" "LI"
 
 # ---- phase 3: route tests ----------------------------------------------
 section "3/4  Route tests"
@@ -298,6 +317,8 @@ http_req() {
     ok "$label ${C_DIM}HTTP $code${C_RST}$extra"
   elif [[ "$code" == "502" && "$body" == *"TT_ALL_STRATEGIES_FAILED"* ]]; then
     note "$label ${C_DIM}HTTP 502 - TT_ALL_STRATEGIES_FAILED (documented TikTok limitation)${C_RST}"
+  elif [[ "$code" == "502" && "$body" == *"LI_ALL_STRATEGIES_FAILED"* ]]; then
+    note "$label ${C_DIM}HTTP 502 - LinkedIn throttled both job sources (transient)${C_RST}"
   else
     err "$label ${C_DIM}HTTP $code (expected $expected)${C_RST}"
     [[ -n "$body" ]] && printf '      %s%s%s\n' "$C_DIM" "$(printf '%s' "$body" | head -c 220 | tr '\n' ' ')" "$C_RST"
@@ -324,8 +345,33 @@ test_connector() {
   fi
 }
 
+test_linkedin() {
+  local base="$1" auth="$2" company="$3"
+  printf '\n  %sLinkedIn%s\n' "$C_BOLD" "$C_RST"
+  http_req "GET /"                          GET "$base/"                                                   200      "$auth" name
+  http_req "GET /health"                    GET "$base/health"                                             200      "$auth" status
+  http_req "GET /openapi.yaml"              GET "$base/openapi.yaml"                                      200      "$auth" ""
+  http_req "GET /v1/session"                GET "$base/v1/session"                                        200      "$auth" session
+  http_req "GET /v1/proxies"                GET "$base/v1/proxies"                                        200      "$auth" ""
+  http_req "GET /v1/diagnostics"            GET "$base/v1/diagnostics?keywords=python&location=France"   200      "$auth" ""
+  http_req "GET /v1/linkedin/jobs/search"   GET "$base/v1/linkedin/jobs/search?keywords=python&location=France&limit=3" "200,502" "$auth" count
+  http_req "GET /v1/linkedin/jobs/:id"      GET "$base/v1/linkedin/jobs/4486054169"                      "200,404" "$auth" company
+  http_req "GET /v1/linkedin/company/:slug" GET "$base/v1/linkedin/company/$company"                      200      "$auth" name
+  http_req "GET /v1/linkedin/signals"       GET "$base/v1/linkedin/signals/hiring?skill=python&country=France&pages=1" 200 "$auth" sampleSize
+  http_req "people endpoint (data policy)"  GET "$base/v1/linkedin/people/reidhoffman"                  "403,200" "$auth" ""
+  http_req "OPTIONS (CORS preflight)"       OPTIONS "$base/health"                                        "204,200" "$auth" ""
+  http_req "unknown route -> 404"           GET "$base/nope"                                              404      "$auth" ""
+  http_req "jobs without query -> 400"      GET "$base/v1/linkedin/jobs/search"                          400      "$auth" ""
+  http_req "signals without params -> 400"  GET "$base/v1/linkedin/signals/hiring"                      400      "$auth" ""
+  http_req "bad limit -> 400"               GET "$base/v1/linkedin/jobs/search?keywords=python&limit=abc" 400   "$auth" ""
+  if [[ -n "$auth" ]]; then
+    http_req "missing API key -> 401"      GET "$base/health"                                            401      "" ""
+  fi
+}
+
 [[ $RUN_IG -eq 1 ]] && test_connector "Instagram" "http://127.0.0.1:$IG_PORT" "instagram" "$IG_USER" "$IG_API_KEY"
 [[ $RUN_TT -eq 1 ]] && test_connector "TikTok"    "http://127.0.0.1:$TT_PORT" "tiktok"    "$TT_USER" "$TT_API_KEY"
+[[ $RUN_LI -eq 1 ]] && test_linkedin "http://127.0.0.1:$LI_PORT" "$LI_API_KEY" "$LI_COMPANY"
 
 # ---- phase 4: demonstration --------------------------------------------
 section "4/4  Demonstration"
@@ -359,8 +405,32 @@ demo_one() {
   printf '    %-14s %s\n' "first date" "$date"
 }
 
+demo_linkedin() {
+  local base="$1" auth="$2" company="$3"
+  local -a args=(-sS --max-time 120)
+  [[ -n "$auth" ]] && args+=(-H "X-API-Key: $auth")
+  local jobs comp signals
+  jobs="$(curl "${args[@]}" "$base/v1/linkedin/jobs/search?keywords=python&location=France&limit=3" 2>/dev/null)"
+  comp="$(curl "${args[@]}" "$base/v1/linkedin/company/$company" 2>/dev/null)"
+  signals="$(curl "${args[@]}" "$base/v1/linkedin/signals/hiring?skill=python&country=France&pages=1" 2>/dev/null)"
+  printf '\n  %sLinkedIn%s  jobs + company + signals\n' "$C_BOLD" "$C_RST"
+  printf '    %-16s %s\n' "jobs returned" "$(printf '%s' "$jobs" | jget count)"
+  printf '    %-16s %s\n' "strategy" "$(printf '%s' "$jobs" | jget strategy)"
+  printf '    %-16s %s\n' "first job" "$(printf '%s' "$jobs" | jget jobs.0.title)"
+  printf '    %-16s %s\n' "first company" "$(printf '%s' "$jobs" | jget jobs.0.company)"
+  printf '    %-16s %s\n' "first city" "$(printf '%s' "$jobs" | jget jobs.0.city)"
+  printf '    %-16s %s\n' "company name" "$(printf '%s' "$comp" | jget name)"
+  printf '    %-16s %s\n' "followers" "$(printf '%s' "$comp" | jget followers)"
+  printf '    %-16s %s\n' "founded" "$(printf '%s' "$comp" | jget foundedYear)"
+  printf '    %-16s %s\n' "company posts" "$(printf '%s' "$comp" | jget posts.length)"
+  printf '    %-16s %s\n' "signal sample" "$(printf '%s' "$signals" | jget sampleSize)"
+  printf '    %-16s %s\n' "in window" "$(printf '%s' "$signals" | jget inWindow)"
+  printf '    %-16s %s\n' "top city" "$(printf '%s' "$signals" | jget byCity.0.name)"
+}
+
 [[ $RUN_IG -eq 1 ]] && demo_one "Instagram" "http://127.0.0.1:$IG_PORT" "instagram" "$IG_USER" "$IG_API_KEY"
 [[ $RUN_TT -eq 1 ]] && demo_one "TikTok"    "http://127.0.0.1:$TT_PORT" "tiktok"    "$TT_USER" "$TT_API_KEY"
+[[ $RUN_LI -eq 1 ]] && demo_linkedin "http://127.0.0.1:$LI_PORT" "$LI_API_KEY" "$LI_COMPANY"
 
 printf '\n%s' "$C_DIM"
 printf '  Startup logs (tail):\n'
