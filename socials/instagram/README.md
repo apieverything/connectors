@@ -461,7 +461,7 @@ typically gives you:
 HOST      resi.example.su
 PORT      80
 USERNAME  exampleuser
-PASSWORD  examplepass0
+PASSWORD  examplepass
 ```
 
 **Just paste the credential string** — `http://` is added automatically:

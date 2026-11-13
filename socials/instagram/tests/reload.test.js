@@ -9,6 +9,7 @@ const { Config, parseEnvFile } = require("../core/config");
 const { parseProxyUrl, normalizeProxyUrl, redact, ProxyPool, getPool, reloadPool } =
   require("../core/proxy");
 
+// Fictional example values only. Never put real provider credentials in tests.
 const BARE = "exampleuser:examplepass@resi.example.su:80";
 
 test("bare user:pass@host:port is accepted (dashboard copy-paste)", () => {
