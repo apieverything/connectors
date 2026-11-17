@@ -35,8 +35,11 @@ jobs:
       - name: Connector contract
         run: |
           for c in instagram linkedin tiktok; do
-            d="socials/$c"
             for f in README.md openapi.yaml .env.example Dockerfile docker-compose.yml package.json; do
-              test -f "$d/$f" || { echo "missing $d/$f"; exit 1; done
+              if [ ! -f "socials/$c/$f" ]; then
+                echo "::error::missing socials/$c/$f"
+                exit 1
+              fi
+            done
           done
           echo "All connectors satisfy the contract"
