@@ -319,6 +319,8 @@ http_req() {
     note "$label ${C_DIM}HTTP 502 - TT_ALL_STRATEGIES_FAILED (documented TikTok limitation)${C_RST}"
   elif [[ "$code" == "502" && "$body" == *"LI_ALL_STRATEGIES_FAILED"* ]]; then
     note "$label ${C_DIM}HTTP 502 - LinkedIn throttled both job sources (transient)${C_RST}"
+  elif [[ "$code" == "429" && "$body" == *"RATE_LIMITED"* ]]; then
+    note "$label ${C_DIM}HTTP 429 - upstream throttled (transient, not a code failure)${C_RST}"
   else
     err "$label ${C_DIM}HTTP $code (expected $expected)${C_RST}"
     [[ -n "$body" ]] && printf '      %s%s%s\n' "$C_DIM" "$(printf '%s' "$body" | head -c 220 | tr '\n' ' ')" "$C_RST"

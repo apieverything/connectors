@@ -111,12 +111,12 @@ test("limit is validated and capped", () => {
 /* ------------------------------- proxies ------------------------------- */
 
 test("parses an authenticated proxy URL like a provider dashboard", () => {
-  const config = parseProxyUrl("http://a95c77043:secret@resi.example.su:80", "abc");
+  const config = parseProxyUrl("http://exampleuser:examplepass@resi.example.su:80", "abc");
   assert.deepEqual(config, {
     protocol: "http",
     host: "resi.example.su",
     port: 80,
-    auth: { username: "a95c77043", password: "secret" },
+    auth: { username: "exampleuser", password: "examplepass" },
   });
 });
 

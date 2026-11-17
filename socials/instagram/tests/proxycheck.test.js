@@ -158,7 +158,7 @@ test("end-to-end: liveness + country code + ms through a real local proxy", asyn
 
     const pool = new ProxyPool({
       IG_PROXIES:
-        `a95c77043:secret@127.0.0.1:${proxyPort},` + // alive, bare form with auth
+        `exampleuser:examplepass@127.0.0.1:${proxyPort},` + // alive, bare form with auth
         `http://127.0.0.1:59998`, // dead
     });
 
