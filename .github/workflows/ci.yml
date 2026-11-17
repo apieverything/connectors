@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        connector: [instagram, linkedin, tiktok]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: socials/${{ matrix.connector }}
+        run: npm install --no-audit --no-fund
+      - name: Offline unit tests
+        working-directory: socials/${{ matrix.connector }}
+        run: npm test
+      - name: Build image
+        run: docker build -t api-everything-${{ matrix.connector }}:ci socials/${{ matrix.connector }}
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Demo script syntax
+        run: bash -n scripts/demo.sh
+      - name: Connector contract
+        run: |
+          for c in instagram linkedin tiktok; do
+            d="socials/$c"
+            for f in README.md openapi.yaml .env.example Dockerfile docker-compose.yml package.json; do
+              test -f "$d/$f" || { echo "missing $d/$f"; exit 1; done
+          done
+          echo "All connectors satisfy the contract"
