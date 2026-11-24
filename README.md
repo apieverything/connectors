@@ -25,7 +25,7 @@ connectors/
 | Instagram | [`socials/instagram`](socials/instagram/README.md) | Active | Node.js 22+ | Exact profile metadata; posts with URL, author, caption, hashtags, mentions, comment count, date, likes and media URLs |
 | YouTube | [`socials/youtube`](socials/youtube/README.md) | Active | Node.js 22+ | Keyless channel metadata, paginated videos & Shorts, video search, single-video details with chapters, and XML/JSON3 transcripts |
 | LinkedIn | [`socials/linkedin`](socials/linkedin/README.md) | Active | Node.js 22+ | Job search and full job details, company metadata, aggregate hiring signals. People profiles disabled by default (personal data) |
-| TikTok | [`socials/tiktok`](socials/tiktok/README.md) | Active (profile) / In progress (posts) | Node.js 22+ | Exact profile metadata; posts through a strategy chain (browser, SSR, signed API, explicit video ids) |
+| TikTok | [`socials/tiktok`](socials/tiktok/README.md) | Active | Node.js 22+ | Exact profile metadata; latest ~10 posts keyless via `embed` + SSR enrichment (deep pagination via strategy chain) |
 
 All connectors share the same infrastructure: `/health`, `/v1/session`,
 `/v1/diagnostics`, `/v1/proxies` and `/openapi.yaml`, coloured logs,
