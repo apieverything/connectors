@@ -655,7 +655,9 @@ function normalizeVideoDetail(playerResponse, initialData = null, source = "inne
   const views = parseCountText(pick(vd.viewCount, micro.viewCount));
   const likes = extractLikesFromWatchData(initialData);
   const datePosted = parseDateValue(pick(micro.publishDate, micro.uploadDate));
-  const isLive = Boolean(vd.isLive || (vd.isLiveContent && durationSeconds === 0));
+  const isLive = Boolean(
+    vd.isLive || micro.liveBroadcastDetails?.isLiveNow || (vd.isLiveContent && durationSeconds === 0)
+  );
 
   const panelChapters = extractChaptersFromPanels(initialData, durationSeconds);
   const chapters = panelChapters.length

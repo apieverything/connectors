@@ -90,8 +90,10 @@ function buildContext(clientType = "WEB") {
     return {
       client: {
         clientName: "ANDROID",
-        clientVersion: "19.44.38",
-        androidSdkVersion: 34,
+        clientVersion: "20.10.38",
+        androidSdkVersion: 30,
+        osName: "Android",
+        osVersion: "11",
         hl,
         gl,
       },
@@ -101,11 +103,11 @@ function buildContext(clientType = "WEB") {
     return {
       client: {
         clientName: "IOS",
-        clientVersion: "19.45.4",
+        clientVersion: "20.10.4",
         deviceMake: "Apple",
         deviceModel: "iPhone16,2",
         osName: "iPhone",
-        osVersion: "18.1.0.22B83",
+        osVersion: "18.3.2.22D82",
         hl,
         gl,
       },
@@ -221,6 +223,18 @@ async function innertubePost(endpoint, payload, { clientType = "WEB", session = 
     return JSON.parse(body);
   } catch {
     throw new ConnectorError("YT_UNEXPECTED_RESPONSE", "InnerTube returned non-JSON payload.", 502);
+  }
+}
+
+// Continuation POST: YouTube answers 400 for malformed/expired tokens; surface that as a client error.
+async function continuationPost(endpoint, cursor, opts) {
+  try {
+    return await innertubePost(endpoint, { continuation: cursor }, opts);
+  } catch (err) {
+    if (err.code === "YT_HTTP_ERROR" && err.details?.status === 400) {
+      throw new ConnectorError("YT_INVALID_CURSOR", "The cursor is invalid or expired.", 400);
+    }
+    throw err;
   }
 }
 
@@ -371,9 +385,9 @@ async function getChannelPosts(handleInput, { limit: rawLimit = 12, cursor = nul
 
   if (cleanCursor) {
     // Continuation cursor always uses InnerTube /browse continuation
-    const data = await innertubePost(
+    const data = await continuationPost(
       "/browse",
-      { continuation: cleanCursor },
+      cleanCursor,
       { ...opts, referer: `${YT_BASE}${parsed.urlPath}/videos` }
     );
     const extracted = extractVideosAndContinuation(data, {
@@ -482,7 +496,7 @@ async function searchVideos(queryInput, { limit: rawLimit = 10, cursor = null } 
   let firstBatch = null;
 
   if (cleanCursor) {
-    const data = await innertubePost("/search", { continuation: cleanCursor }, opts);
+    const data = await continuationPost("/search", cleanCursor, opts);
     firstBatch = extractVideosAndContinuation(data, null);
     winner = "innertube_search";
   } else {
@@ -587,6 +601,7 @@ async function fetchPlayerBundle(videoId, { needCaptions = false, fixedProxy } =
   let bestPlayer = null;
   let watchData = null;
   let bestSource = null;
+  let bestClient = null;
 
   for (const strat of order) {
     if (strat === "innertube") {
@@ -609,11 +624,13 @@ async function fetchPlayerBundle(videoId, { needCaptions = false, fixedProxy } =
             if (!bestPlayer) {
               bestPlayer = pr;
               bestSource = `innertube_player`;
+              bestClient = clientType;
             }
             const tracks = extractCaptionTracks(pr);
             if (!needCaptions || tracks.length > 0) {
               bestPlayer = pr;
               bestSource = `innertube_player`;
+              bestClient = clientType;
               break;
             }
           }
@@ -637,7 +654,7 @@ async function fetchPlayerBundle(videoId, { needCaptions = false, fixedProxy } =
       }
 
       if (bestPlayer && (!needCaptions || extractCaptionTracks(bestPlayer).length > 0)) {
-        return { playerResponse: bestPlayer, initialData: watchData, source: bestSource };
+        return { playerResponse: bestPlayer, initialData: watchData, source: bestSource, clientType: bestClient };
       }
     } else if (strat === "html") {
       try {
@@ -663,7 +680,7 @@ async function fetchPlayerBundle(videoId, { needCaptions = false, fixedProxy } =
   }
 
   if (bestPlayer) {
-    return { playerResponse: bestPlayer, initialData: watchData, source: bestSource ?? "innertube_player" };
+    return { playerResponse: bestPlayer, initialData: watchData, source: bestSource ?? "innertube_player", clientType: bestClient };
   }
   throw new ConnectorError("YT_ALL_STRATEGIES_FAILED", `Could not fetch video ${videoId}.`, 502, failures);
 }
@@ -674,6 +691,18 @@ async function getVideo(videoIdInput, opts = {}) {
     needCaptions: false,
     fixedProxy: opts.fixedProxy,
   });
+  // The WEB client no longer returns caption tracks (needs PO token). Borrow them
+  // from a mobile client so captionLanguages is populated (best effort).
+  if (!extractCaptionTracks(playerResponse).length && strategyOrder().includes("innertube")) {
+    try {
+      const cap = await fetchPlayerBundle(videoId, { needCaptions: true, fixedProxy: opts.fixedProxy });
+      if (cap.playerResponse?.captions && extractCaptionTracks(cap.playerResponse).length) {
+        playerResponse.captions = cap.playerResponse.captions;
+      }
+    } catch {
+      /* captions are optional for video detail */
+    }
+  }
   return normalizeVideoDetail(playerResponse, initialData, source);
 }
 
@@ -707,6 +736,20 @@ function selectCaptionTrack(tracks, lang, explicit) {
   return null;
 }
 
+function captionHeaders(clientType, videoId) {
+  const base = buildBrowserHeaders(readSession(), {
+    json: false,
+    referer: `${YT_BASE}/watch?v=${videoId}`,
+    clientType: clientType === "ANDROID" || clientType === "IOS" ? clientType : "WEB",
+  });
+  if (clientType === "ANDROID" || clientType === "IOS") {
+    // timedtext is a plain GET; drop JSON API headers
+    delete base["Content-Type"];
+    base.Accept = "*/*";
+  }
+  return base;
+}
+
 function withFmtJson3(baseUrl) {
   try {
     const u = new URL(baseUrl);
@@ -720,7 +763,7 @@ function withFmtJson3(baseUrl) {
 async function getTranscript(videoIdInput, { lang: rawLang = null } = {}, opts = {}) {
   const videoId = parseVideoId(videoIdInput);
   const { lang, explicit } = parseLang(rawLang);
-  const { playerResponse, source } = await fetchPlayerBundle(videoId, {
+  const { playerResponse, source, clientType } = await fetchPlayerBundle(videoId, {
     needCaptions: true,
     fixedProxy: opts.fixedProxy,
   });
@@ -747,10 +790,8 @@ async function getTranscript(videoIdInput, { lang: rawLang = null } = {}, opts =
     );
   }
 
-  const headers = buildBrowserHeaders(readSession(), {
-    json: false,
-    referer: `${YT_BASE}/watch?v=${videoId}`,
-  });
+  // Caption URLs are bound to the client that issued them: fetch with that client's UA.
+  const headers = captionHeaders(clientType, videoId);
   const poolOpts = opts.fixedProxy !== undefined ? { fixedProxy: opts.fixedProxy } : {};
 
   let segments = [];

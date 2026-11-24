@@ -18,10 +18,10 @@ const DEFAULT_USER_AGENT =
   "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 const ANDROID_USER_AGENT =
-  "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip";
+  "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
 
 const IOS_USER_AGENT =
-  "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X;)";
+  "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 
 const HINTS = {
   YT_BAD_REQUEST: "Check the handle (@handle or UC... channel ID), 11-char video ID, or query parameters.",
@@ -82,7 +82,7 @@ function buildBrowserHeaders(session = null, { json = false, referer = "https://
       Accept: "application/json",
       "Content-Type": "application/json",
       "X-YouTube-Client-Name": "3",
-      "X-YouTube-Client-Version": "19.44.38",
+      "X-YouTube-Client-Version": "20.10.38",
       "X-Goog-Api-Format-Version": "2",
       Cookie: buildCookieHeader(session),
     };
@@ -95,7 +95,7 @@ function buildBrowserHeaders(session = null, { json = false, referer = "https://
       Accept: "application/json",
       "Content-Type": "application/json",
       "X-YouTube-Client-Name": "5",
-      "X-YouTube-Client-Version": "19.45.4",
+      "X-YouTube-Client-Version": "20.10.4",
       "X-Goog-Api-Format-Version": "2",
       Cookie: buildCookieHeader(session),
     };

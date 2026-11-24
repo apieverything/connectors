@@ -10,6 +10,9 @@
  *   browser       Playwright renders the page and intercepts TikTok's own
  *                 signed XHRs (opt-in, TT_BROWSER=1)
  *   ssr_itemlist  userInfo.itemList, populated for some accounts/regions
+ *   embed         /embed/@user page: ~10 latest videos, keyless, no signature
+ *                 (enriched with likes/comments from video pages unless
+ *                 TT_EMBED_ENRICH=0)
  *   item_list     direct unsigned attempt, reports TT_ENDPOINT_BLOCKED
  *   video_ids     explicit ids via ?ids=..., resolved through video pages
  *                 (full stats) or oEmbed (fallback)
@@ -19,8 +22,9 @@ const { get } = require("./http");
 const { fetchOembed, fetchVideoDetail } = require("./video");
 const { ConnectorError } = require("./errors");
 const { log } = require("./logger");
+const { parseEmbedProfile } = require("./embed");
 
-const DEFAULT_ORDER = ["browser", "ssr_itemlist", "item_list", "video_ids"];
+const DEFAULT_ORDER = ["browser", "ssr_itemlist", "embed", "item_list", "video_ids"];
 
 function strategyOrder({ hasIds = false } = {}) {
   const raw = process.env.TT_POSTS_STRATEGIES?.trim();
@@ -47,6 +51,35 @@ async function ssrItemList(ctx) {
     );
   }
   return { nodes, nextCursor: null, source: "ssr_itemlist" };
+}
+
+async function embed(ctx) {
+  const { body } = await get(
+    `https://www.tiktok.com/embed/@${encodeURIComponent(ctx.username)}`,
+    ctx.fixedProxy !== undefined ? { fixedProxy: ctx.fixedProxy } : {}
+  );
+  let nodes = parseEmbedProfile(body, ctx.username);
+  if (!nodes.length) {
+    throw new ConnectorError(
+      "TT_ENDPOINT_BLOCKED",
+      "The embed profile page listed no videos (private, empty or unavailable account).",
+      502
+    );
+  }
+  nodes = nodes.slice(0, ctx.limit ?? 12);
+  if (process.env.TT_EMBED_ENRICH !== "0") {
+    nodes = await Promise.all(nodes.map(async (n) => {
+      try {
+        const full = await fetchVideoDetail(n.id, ctx.username, {
+          fixedProxy: ctx.fixedProxy, session: ctx.session,
+        });
+        return full;
+      } catch {
+        return n; // keep the embed-level data when the detail page fails
+      }
+    }));
+  }
+  return { nodes, nextCursor: null, source: "embed" };
 }
 
 async function itemList(ctx) {
@@ -198,6 +231,7 @@ async function browser(ctx) {
 const STRATEGIES = {
   browser,
   ssr_itemlist: ssrItemList,
+  embed,
   item_list: itemList,
   video_ids: videoIds,
 };

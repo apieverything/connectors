@@ -226,3 +226,36 @@ test("redactUrl hides secrets in query strings", () => {
   assert.ok(!out.includes("SUPERSECRET"));
   assert.match(out, /api_key=\*\*\*/);
 });
+
+const { parseEmbedProfile, dateFromId } = require("../core/embed");
+
+const EMBED_FIXTURE = `<html><script id="__FRONTITY_CONNECT_STATE__" type="application/json">${JSON.stringify({
+  source: { data: { "/embed/@tiktok": { videoList: [
+    { id: "7710348513128828191", desc: "hello #fyp", coverUrl: "https://c/x.image", originCoverUrl: "https://c/o.image", playAddr: "https://v/p.mp4", playCount: 457100, privateItem: false, authorUniqueId: "tiktok" },
+    { id: "7700009319382650142", desc: "secret", privateItem: true },
+  ] } } },
+})}</script></html>`;
+
+test("parseEmbedProfile extracts videos from the embed state and skips private ones", () => {
+  const nodes = parseEmbedProfile(EMBED_FIXTURE, "tiktok");
+  assert.equal(nodes.length, 1);
+  const post = normalizePost(nodes[0], "tiktok");
+  assert.equal(post.url, "https://www.tiktok.com/@tiktok/video/7710348513128828191");
+  assert.equal(post.plays, 457100);
+  assert.deepEqual(post.hashtags, ["#fyp"]);
+  assert.deepEqual(post.photos, ["https://c/o.image"]);
+  assert.deepEqual(post.videos, ["https://v/p.mp4"]);
+  assert.match(post.datePosted, /^2026-11-20T/);
+});
+
+test("parseEmbedProfile tolerates garbage; dateFromId rejects non-snowflakes", () => {
+  assert.deepEqual(parseEmbedProfile("<html></html>"), []);
+  assert.deepEqual(parseEmbedProfile('<script id="__FRONTITY_CONNECT_STATE__">{bad</script>'), []);
+  assert.equal(dateFromId("abc"), null);
+  assert.equal(dateFromId("12345"), null);
+});
+
+test("embed strategy is part of the default chain before item_list", () => {
+  assert.ok(DEFAULT_ORDER.indexOf("embed") > DEFAULT_ORDER.indexOf("ssr_itemlist"));
+  assert.ok(DEFAULT_ORDER.indexOf("embed") < DEFAULT_ORDER.indexOf("item_list"));
+});

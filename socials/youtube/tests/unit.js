@@ -895,3 +895,113 @@ test("HTTP server contract: /, /health, /openapi.yaml, error envelopes and X-API
     else process.env.LOG_LEVEL = savedLevel;
   }
 });
+
+/* ---------- Live-verification regressions (captured-shape fixtures) ---------- */
+
+const TRACKS_FIXTURE = {
+  playabilityStatus: { status: "OK" },
+  videoDetails: { videoId: "capVid00001", title: "Captioned", lengthSeconds: "60", viewCount: "10" },
+  captions: {
+    playerCaptionsTracklistRenderer: {
+      captionTracks: [
+        { baseUrl: "https://www.youtube.com/api/timedtext?v=capVid00001&caps=asr&ip=0.0.0.0", languageCode: "en", name: { simpleText: "English" } },
+        { baseUrl: "https://www.youtube.com/api/timedtext?v=capVid00001&caps=asr&lang=fr", languageCode: "fr", name: { simpleText: "French" } },
+      ],
+    },
+  },
+};
+
+test("transcript: fetches timedtext with the issuing mobile client's UA, parses srv3 XML, lang selection + 404 w/ availableLanguages", async () => {
+  const saved = process.env.YT_MIN_INTERVAL_MS;
+  process.env.YT_MIN_INTERVAL_MS = "0";
+  const seen = [];
+  try {
+    setTransport(async ({ url, headers, data }) => {
+      seen.push({ url, ua: headers["User-Agent"] });
+      if (url.includes("/youtubei/v1/player")) {
+        const client = JSON.parse(data).context.client.clientName;
+        // WEB: no captions (PO-token gated); ANDROID: no captions here; IOS returns tracks
+        return { status: 200, headers: {}, data: JSON.stringify(client === "IOS" ? TRACKS_FIXTURE : { ...TRACKS_FIXTURE, captions: undefined }) };
+      }
+      if (url.includes("/api/timedtext")) {
+        if (!/iPhone|ios/i.test(headers["User-Agent"])) return { status: 200, headers: {}, data: "" };
+        return {
+          status: 200,
+          headers: {},
+          data: '<?xml version="1.0"?><timedtext format="3"><body><p t="1200" d="2160">Hello <s>there</s></p><p t="3400" d="1000">World &amp; co</p></body></timedtext>',
+        };
+      }
+      return { status: 404, data: "", headers: {} };
+    });
+
+    const res = await getTranscript("capVid00001", { lang: "en" });
+    assert.equal(res.count, 2);
+    assert.equal(res.segments[0].startMs, 1200);
+    assert.equal(res.segments[1].text, "World & co");
+    assert.deepEqual(res.availableLanguages.map((l) => l.code), ["en", "fr"]);
+    const tt = seen.find((r) => r.url.includes("/api/timedtext"));
+    assert.match(tt.ua, /com\.google\.ios\.youtube\/20\./);
+
+    await assert.rejects(
+      () => getTranscript("capVid00001", { lang: "xx" }),
+      (e) => e.code === "YT_NO_TRANSCRIPT" && e.status === 404 && e.details.availableLanguages.length === 2
+    );
+  } finally {
+    setTransport(null);
+    if (saved === undefined) delete process.env.YT_MIN_INTERVAL_MS;
+    else process.env.YT_MIN_INTERVAL_MS = saved;
+  }
+});
+
+test("getVideo: borrows caption tracks from a mobile client when WEB response has none", async () => {
+  const saved = process.env.YT_MIN_INTERVAL_MS;
+  process.env.YT_MIN_INTERVAL_MS = "0";
+  try {
+    setTransport(async ({ url, data }) => {
+      if (url.includes("/youtubei/v1/player")) {
+        const client = JSON.parse(data).context.client.clientName;
+        return { status: 200, headers: {}, data: JSON.stringify(client === "WEB" ? { ...TRACKS_FIXTURE, captions: undefined } : TRACKS_FIXTURE) };
+      }
+      return { status: 200, headers: {}, data: "{}" };
+    });
+    const v = await getVideo("capVid00001");
+    assert.equal(v.captionLanguages.length, 2);
+  } finally {
+    setTransport(null);
+    if (saved === undefined) delete process.env.YT_MIN_INTERVAL_MS;
+    else process.env.YT_MIN_INTERVAL_MS = saved;
+  }
+});
+
+test("invalid/expired continuation cursor -> 400 YT_INVALID_CURSOR (posts + search)", async () => {
+  const saved = process.env.YT_MIN_INTERVAL_MS;
+  process.env.YT_MIN_INTERVAL_MS = "0";
+  try {
+    setTransport(async () => ({ status: 400, headers: {}, data: '{"error":{"code":400,"status":"INVALID_ARGUMENT"}}' }));
+    const bad = (e) => e.code === "YT_INVALID_CURSOR" && e.status === 400;
+    await assert.rejects(() => getChannelPosts("@jawed", { cursor: "garbage" }), bad);
+    await assert.rejects(() => searchVideos("x", { cursor: "garbage" }), bad);
+  } finally {
+    setTransport(null);
+    if (saved === undefined) delete process.env.YT_MIN_INTERVAL_MS;
+    else process.env.YT_MIN_INTERVAL_MS = saved;
+  }
+});
+
+test("mobile client versions are current (old 19.x ANDROID is rejected with 400 FAILED_PRECONDITION)", () => {
+  const { buildContext } = require("../core/innertube");
+  assert.match(buildContext("ANDROID").client.clientVersion, /^20\./);
+  assert.match(buildContext("IOS").client.clientVersion, /^20\./);
+  assert.match(buildBrowserHeaders(null, { clientType: "ANDROID" })["User-Agent"], /youtube\/20\./);
+});
+
+test("normalizeVideoDetail: isLive from microformat.liveBroadcastDetails.isLiveNow; ended stream is not live", () => {
+  const base = { videoDetails: { videoId: "liveVid0001", title: "Live", lengthSeconds: "0", isLiveContent: true } };
+  const now = normalizeVideoDetail({ ...base, microformat: { playerMicroformatRenderer: { liveBroadcastDetails: { isLiveNow: true } } } });
+  assert.equal(now.isLive, true);
+  const ended = normalizeVideoDetail({
+    videoDetails: { ...base.videoDetails, lengthSeconds: "1000" },
+    microformat: { playerMicroformatRenderer: { liveBroadcastDetails: { isLiveNow: false } } },
+  });
+  assert.equal(ended.isLive, false);
+});

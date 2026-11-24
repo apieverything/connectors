@@ -168,13 +168,40 @@ Credentials are redacted in every log and API response.
 `limit` is capped at 100. Automatic pagination is supported when a strategy
 returns `nextCursor`.
 
+## Posts: what was tested on 2026-11-24
+
+Datacenter IP, no cookies, no proxy. Result: **`/posts` works keylessly via
+the embed profile page** (latest ~10 public videos).
+
+| Approach | Result |
+|---|---|
+| `tiktok.com/embed/@user` (Frontity `videoList`) | **PASS** – 10 latest videos: id, desc, cover, playAddr, playCount. **Used (`embed` strategy).** |
+| `…/@user/video/<id>` SSR (`webapp.video-detail`) | **PASS** – full stats (likes, comments, shares, collects, duration, music, exact date). Used to enrich embed results (disable with `TT_EMBED_ENRICH=0`). |
+| `tiktok.com/oembed?url=<video>` | PASS for a known video (title/thumbnail only); `?url=@user` returns only a profile blurb, no list. |
+| `/embed/v2/<id>` | 200, single video only; no listing. |
+| `/@user` SSR `userInfo.itemList` | 200 but empty. |
+| `/api/post/item_list/` unsigned | 200, empty body (needs X-Bogus/X-Gnarly). |
+| `/api/user/detail/` unsigned | 200, empty body. |
+| Googlebot UA | 403. |
+| facebookexternalhit UA | 200, small OG stub, no videos. |
+| `m.tiktok.com/@user` | 404. |
+| `sitemap.xml` | redirects to a static sitemap, not per-user. |
+| X-Bogus / a_bogus pure-JS signer | Skipped: no small, documented open algorithm; reverse-engineered signers break every few weeks. |
+| Playwright interception (`TT_BROWSER=1`) | Not re-tested; Playwright is not a dependency. Kept opt-in. |
+
+Limitations of the `embed` strategy: only the ~10 most recent videos, no
+pagination (`nextCursor` is null). Without enrichment, likes/comments/shares
+are `null` and `datePosted` is derived from the video id (accurate to ~10 s).
+Private or non-existent accounts raise `TT_ENDPOINT_BLOCKED`. Embed layout is
+undocumented and may change; `npm test` fixtures cover the parser.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-14 offline tests cover normalization, SSR parsing, bare proxy credentials,
+17 offline tests cover normalization, SSR parsing, bare proxy credentials,
 config reload, strategy ordering, diagnostics aggregation and error hints. No
 network calls are made.
 
@@ -189,6 +216,7 @@ core/normalize.js         stable profile / post shapes
 core/profile.js           profile resolver with cache
 core/video.js             oEmbed + video detail page
 core/strategies.js        post-source chain + diagnostics
+core/embed.js             /embed/@user videoList parser (keyless posts)
 core/posts.js             strategy chain + pagination
 core/proxy.js             optional rotating proxy pool
 core/proxycheck.js        startup liveness / country / latency probe
