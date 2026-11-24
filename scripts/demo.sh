@@ -4,7 +4,7 @@
 #   ./demo.sh                    audit + start all connectors + test every route
 #   ./demo.sh --direct           same, but ignore proxies for the runtime
 #   ./demo.sh --audit-only       only audit the .env files
-#   ./demo.sh --ig-only / --tt-only / --li-only
+#   ./demo.sh --ig-only / --yt-only / --tt-only / --li-only
 #   ./demo.sh --fast             lower the per-request delay for a quicker run
 #
 # Secrets are never printed. Proxy credentials are shown as ***:***@host.
@@ -12,15 +12,20 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IG_DIR="$ROOT/socials/instagram"
+YT_DIR="$ROOT/socials/youtube"
 TT_DIR="$ROOT/socials/tiktok"
 LI_DIR="$ROOT/socials/linkedin"
 IG_PORT="${IG_PORT:-}"
+YT_PORT="${YT_PORT:-}"
 TT_PORT="${TT_PORT:-}"
 LI_PORT="${LI_PORT:-}"
 EXPLICIT_IG_PORT=0
+EXPLICIT_YT_PORT=0
 EXPLICIT_TT_PORT=0
 EXPLICIT_LI_PORT=0
 IG_USER="${IG_USER:-kametolol}"
+YT_HANDLE="${YT_HANDLE:-@mkbhd}"
+YT_VIDEO="${YT_VIDEO:-dQw4w9WgXcQ}"
 TT_USER="${TT_USER:-khaby.lame}"
 LI_COMPANY="${LI_COMPANY:-linkedin}"
 
@@ -28,6 +33,7 @@ DIRECT=0
 AUDIT_ONLY=0
 FAST=0
 RUN_IG=1
+RUN_YT=1
 RUN_TT=1
 RUN_LI=1
 
@@ -38,10 +44,12 @@ free_port() {
 }
 
 [[ $EXPLICIT_IG_PORT -eq 0 ]] && IG_PORT="$(free_port)"
+[[ $EXPLICIT_YT_PORT -eq 0 ]] && YT_PORT="$(free_port)"
 [[ $EXPLICIT_TT_PORT -eq 0 ]] && TT_PORT="$(free_port)"
 [[ $EXPLICIT_LI_PORT -eq 0 ]] && LI_PORT="$(free_port)"
-while [[ "$TT_PORT" == "$IG_PORT" ]]; do TT_PORT="$(free_port)"; done
-while [[ "$LI_PORT" == "$IG_PORT" || "$LI_PORT" == "$TT_PORT" ]]; do LI_PORT="$(free_port)"; done
+while [[ "$YT_PORT" == "$IG_PORT" ]]; do YT_PORT="$(free_port)"; done
+while [[ "$TT_PORT" == "$IG_PORT" || "$TT_PORT" == "$YT_PORT" ]]; do TT_PORT="$(free_port)"; done
+while [[ "$LI_PORT" == "$IG_PORT" || "$LI_PORT" == "$YT_PORT" || "$LI_PORT" == "$TT_PORT" ]]; do LI_PORT="$(free_port)"; done
 
 usage() {
   sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -53,10 +61,12 @@ while [[ $# -gt 0 ]]; do
     --direct) DIRECT=1 ;;
     --audit-only) AUDIT_ONLY=1 ;;
     --fast) FAST=1 ;;
-    --ig-only) RUN_TT=0; RUN_LI=0 ;;
-    --tt-only) RUN_IG=0; RUN_LI=0 ;;
-    --li-only) RUN_IG=0; RUN_TT=0 ;;
+    --ig-only) RUN_YT=0; RUN_TT=0; RUN_LI=0 ;;
+    --yt-only) RUN_IG=0; RUN_TT=0; RUN_LI=0 ;;
+    --tt-only) RUN_IG=0; RUN_YT=0; RUN_LI=0 ;;
+    --li-only) RUN_IG=0; RUN_YT=0; RUN_TT=0 ;;
     --ig-port) IG_PORT="$2"; EXPLICIT_IG_PORT=1; shift ;;
+    --yt-port) YT_PORT="$2"; EXPLICIT_YT_PORT=1; shift ;;
     --tt-port) TT_PORT="$2"; EXPLICIT_TT_PORT=1; shift ;;
     --li-port) LI_PORT="$2"; EXPLICIT_LI_PORT=1; shift ;;
     -h|--help) usage ;;
@@ -74,7 +84,7 @@ else
 fi
 
 PASS=0; WARNS=0; FAILS=0; NOTES=0
-TOTAL=$(( (RUN_IG + RUN_TT + RUN_LI) ))
+TOTAL=$(( (RUN_IG + RUN_YT + RUN_TT + RUN_LI) ))
 PIDS_FILE="$(mktemp)"
 LOGDIR="$(mktemp -d)"
 JS="$(mktemp)"
@@ -168,7 +178,7 @@ function audit(envPath, examplePath, label, prefix, gitignorePath) {
   }
   const level = env.m.get("LOG_LEVEL");
   if (level && !/^(debug|info|warn|error|silent)$/.test(level)) push("WARN", `${label}: LOG_LEVEL="${level}" is not a valid level`);
-  for (const flag of ["IG_BROWSER", "TT_BROWSER", "IG_PROXY_CHECK", "TT_PROXY_CHECK", "LI_PROXY_CHECK", "IG_PROXY_STICKY", "TT_PROXY_STICKY", "LI_PROXY_STICKY", "IG_ENRICH_POSTS", "LI_ALLOW_PEOPLE"]) {
+  for (const flag of ["IG_BROWSER", "TT_BROWSER", "IG_PROXY_CHECK", "YT_PROXY_CHECK", "TT_PROXY_CHECK", "LI_PROXY_CHECK", "IG_PROXY_STICKY", "YT_PROXY_STICKY", "TT_PROXY_STICKY", "LI_PROXY_STICKY", "IG_ENRICH_POSTS", "LI_ALLOW_PEOPLE", "YT_VERIFY_SESSION"]) {
     if (env.m.has(flag) && !/^[01]$/.test(env.m.get(flag))) push("WARN", `${label}: ${flag} should be 0 or 1`);
   }
 
@@ -229,17 +239,23 @@ audit_one() {
 }
 
 [[ $RUN_IG -eq 1 ]] && audit_one "$IG_DIR" "Instagram" "IG"
+[[ $RUN_YT -eq 1 ]] && audit_one "$YT_DIR" "YouTube" "YT"
 [[ $RUN_TT -eq 1 ]] && audit_one "$TT_DIR" "TikTok" "TT"
 [[ $RUN_LI -eq 1 ]] && audit_one "$LI_DIR" "LinkedIn" "LI"
 
 IG_API_KEY="$(env_value "$IG_DIR/.env" API_KEY)"
+YT_API_KEY="$(env_value "$YT_DIR/.env" API_KEY)"
 TT_API_KEY="$(env_value "$TT_DIR/.env" API_KEY)"
 LI_API_KEY="$(env_value "$LI_DIR/.env" API_KEY)"
 IG_PORT_FILE="$(env_value "$IG_DIR/.env" PORT)"
+YT_PORT_FILE="$(env_value "$YT_DIR/.env" PORT)"
 TT_PORT_FILE="$(env_value "$TT_DIR/.env" PORT)"
 LI_PORT_FILE="$(env_value "$LI_DIR/.env" PORT)"
 if [[ $RUN_IG -eq 1 && $RUN_TT -eq 1 && -n "$IG_PORT_FILE" && "$IG_PORT_FILE" == "$TT_PORT_FILE" ]]; then
   warn "Instagram and TikTok .env both declare PORT=$IG_PORT_FILE - the demo uses $IG_PORT / $TT_PORT instead"
+fi
+if [[ $RUN_YT -eq 1 && -n "$YT_PORT_FILE" ]]; then
+  note "YouTube .env declares PORT=$YT_PORT_FILE - the demo uses $YT_PORT instead"
 fi
 if [[ $RUN_LI -eq 1 && -n "$LI_PORT_FILE" ]]; then
   note "LinkedIn .env declares PORT=$LI_PORT_FILE - the demo uses $LI_PORT instead"
@@ -289,6 +305,7 @@ start_one() {
   fi
 }
 [[ $RUN_IG -eq 1 ]] && start_one "$IG_DIR" "$IG_PORT" "instagram" "IG"
+[[ $RUN_YT -eq 1 ]] && start_one "$YT_DIR" "$YT_PORT" "youtube" "YT"
 [[ $RUN_TT -eq 1 ]] && start_one "$TT_DIR" "$TT_PORT" "tiktok" "TT"
 [[ $RUN_LI -eq 1 ]] && start_one "$LI_DIR" "$LI_PORT" "linkedin" "LI"
 
@@ -319,6 +336,8 @@ http_req() {
     note "$label ${C_DIM}HTTP 502 - TT_ALL_STRATEGIES_FAILED (documented TikTok limitation)${C_RST}"
   elif [[ "$code" == "502" && "$body" == *"LI_ALL_STRATEGIES_FAILED"* ]]; then
     note "$label ${C_DIM}HTTP 502 - LinkedIn throttled both job sources (transient)${C_RST}"
+  elif [[ "$code" == "502" && "$body" == *"YT_ALL_STRATEGIES_FAILED"* ]]; then
+    note "$label ${C_DIM}HTTP 502 - YouTube upstream unreachable or throttled (transient)${C_RST}"
   elif [[ "$code" == "429" && "$body" == *"RATE_LIMITED"* ]]; then
     note "$label ${C_DIM}HTTP 429 - upstream throttled (transient, not a code failure)${C_RST}"
   else
@@ -347,6 +366,32 @@ test_connector() {
   fi
 }
 
+test_youtube() {
+  local base="$1" auth="$2" handle="$3" video="$4"
+  printf '\n  %sYouTube%s\n' "$C_BOLD" "$C_RST"
+  http_req "GET /"                                GET "$base/"                                              200         "$auth" name
+  http_req "GET /health"                          GET "$base/health"                                        200         "$auth" status
+  http_req "GET /openapi.yaml"                    GET "$base/openapi.yaml"                                 200         "$auth" ""
+  http_req "GET /v1/session"                      GET "$base/v1/session"                                   200         "$auth" session
+  http_req "GET /v1/proxies"                      GET "$base/v1/proxies"                                   200         "$auth" ""
+  http_req "GET /v1/diagnostics"                  GET "$base/v1/diagnostics?handle=$handle"               200         "$auth" ""
+  http_req "GET /v1/youtube/:handle"              GET "$base/v1/youtube/$handle"                          "200,502"   "$auth" subscribers
+  http_req "GET /v1/youtube/:handle/posts"        GET "$base/v1/youtube/$handle/posts?limit=2"            "200,502"   "$auth" count
+  http_req "GET /v1/youtube/search"               GET "$base/v1/youtube/search?q=mkbhd&limit=2"           "200,502"   "$auth" count
+  http_req "GET /v1/youtube/videos/:id"           GET "$base/v1/youtube/videos/$video"                    "200,502"   "$auth" title
+  http_req "GET /v1/youtube/videos/:id/transcript" GET "$base/v1/youtube/videos/$video/transcript?lang=en" "200,404,502" "$auth" count
+  http_req "OPTIONS (CORS preflight)"             OPTIONS "$base/health"                                  "204,200"   "$auth" ""
+  http_req "unknown route -> 404"                 GET "$base/nope"                                         404         "$auth" ""
+  http_req "bad handle -> 400"                    GET "$base/v1/youtube/bad!!/posts"                       400         "$auth" ""
+  http_req "bad video id -> 400"                  GET "$base/v1/youtube/videos/bad!!"                      400         "$auth" ""
+  http_req "search without query -> 400"          GET "$base/v1/youtube/search"                            400         "$auth" ""
+  http_req "bad limit -> 400"                     GET "$base/v1/youtube/$handle/posts?limit=abc"           400         "$auth" ""
+  http_req "bad lang -> 400"                      GET "$base/v1/youtube/videos/$video/transcript?lang=bad!!" 400       "$auth" ""
+  if [[ -n "$auth" ]]; then
+    http_req "missing API key -> 401"             GET "$base/health"                                       401         "" ""
+  fi
+}
+
 test_linkedin() {
   local base="$1" auth="$2" company="$3"
   printf '\n  %sLinkedIn%s\n' "$C_BOLD" "$C_RST"
@@ -372,8 +417,9 @@ test_linkedin() {
 }
 
 [[ $RUN_IG -eq 1 ]] && test_connector "Instagram" "http://127.0.0.1:$IG_PORT" "instagram" "$IG_USER" "$IG_API_KEY"
+[[ $RUN_YT -eq 1 ]] && test_youtube   "http://127.0.0.1:$YT_PORT" "$YT_API_KEY" "$YT_HANDLE" "$YT_VIDEO"
 [[ $RUN_TT -eq 1 ]] && test_connector "TikTok"    "http://127.0.0.1:$TT_PORT" "tiktok"    "$TT_USER" "$TT_API_KEY"
-[[ $RUN_LI -eq 1 ]] && test_linkedin "http://127.0.0.1:$LI_PORT" "$LI_API_KEY" "$LI_COMPANY"
+[[ $RUN_LI -eq 1 ]] && test_linkedin  "http://127.0.0.1:$LI_PORT" "$LI_API_KEY" "$LI_COMPANY"
 
 # ---- phase 4: demonstration --------------------------------------------
 section "4/4  Demonstration"
@@ -407,6 +453,32 @@ demo_one() {
   printf '    %-14s %s\n' "first date" "$date"
 }
 
+demo_youtube() {
+  local base="$1" auth="$2" handle="$3"
+  local -a args=(-sS --max-time 120)
+  [[ -n "$auth" ]] && args+=(-H "X-API-Key: $auth")
+  local ch posts
+  ch="$(curl "${args[@]}" "$base/v1/youtube/$handle" 2>/dev/null)"
+  posts="$(curl "${args[@]}" "$base/v1/youtube/$handle/posts?limit=2" 2>/dev/null)"
+  printf '\n  %sYouTube  %s%s\n' "$C_BOLD" "$handle" "$C_RST"
+  printf '    %-14s %s\n' "channel" "$(printf '%s' "$ch" | jget fullName)"
+  printf '    %-14s %s\n' "subscribers" "$(printf '%s' "$ch" | jget subscribers)"
+  printf '    %-14s %s\n' "videosCount" "$(printf '%s' "$ch" | jget videosCount)"
+  printf '    %-14s %s\n' "source" "$(printf '%s' "$ch" | jget source)"
+  local strategy count
+  strategy="$(printf '%s' "$posts" | jget strategy)"
+  count="$(printf '%s' "$posts" | jget count)"
+  if [[ -z "$strategy" || -z "$count" ]]; then
+    note "videos unavailable here ($(printf '%s' "$posts" | jget error.code)) - see /v1/diagnostics?handle=$handle"
+    return
+  fi
+  printf '    %-14s %s\n' "strategy" "$strategy"
+  printf '    %-14s %s\n' "returned" "$count videos"
+  printf '    %-14s %s\n' "first title" "$(printf '%s' "$posts" | jget posts.0.title)"
+  printf '    %-14s %s\n' "first url" "$(printf '%s' "$posts" | jget posts.0.url)"
+  printf '    %-14s %s\n' "first views" "$(printf '%s' "$posts" | jget posts.0.views)"
+}
+
 demo_linkedin() {
   local base="$1" auth="$2" company="$3"
   local -a args=(-sS --max-time 120)
@@ -430,8 +502,9 @@ demo_linkedin() {
   printf '    %-16s %s\n' "top city" "$(printf '%s' "$signals" | jget byCity.0.name)"
 }
 
-[[ $RUN_IG -eq 1 ]] && demo_one "Instagram" "http://127.0.0.1:$IG_PORT" "instagram" "$IG_USER" "$IG_API_KEY"
-[[ $RUN_TT -eq 1 ]] && demo_one "TikTok"    "http://127.0.0.1:$TT_PORT" "tiktok"    "$TT_USER" "$TT_API_KEY"
+[[ $RUN_IG -eq 1 ]] && demo_one      "Instagram" "http://127.0.0.1:$IG_PORT" "instagram" "$IG_USER" "$IG_API_KEY"
+[[ $RUN_YT -eq 1 ]] && demo_youtube  "http://127.0.0.1:$YT_PORT" "$YT_API_KEY" "$YT_HANDLE"
+[[ $RUN_TT -eq 1 ]] && demo_one      "TikTok"    "http://127.0.0.1:$TT_PORT" "tiktok"    "$TT_USER" "$TT_API_KEY"
 [[ $RUN_LI -eq 1 ]] && demo_linkedin "http://127.0.0.1:$LI_PORT" "$LI_API_KEY" "$LI_COMPANY"
 
 printf '\n%s' "$C_DIM"

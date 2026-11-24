@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: API Everything - YouTube connector
+  version: 1.0.0
+  description: >
+    Self-hosted, free, keyless YouTube connector. Collects channel metadata,
+    paginated channel videos and Shorts, video search results, single-video
+    details with chapters, and caption transcripts without any Google API key
+    or paid dependency. Uses YouTube's InnerTube JSON API with balanced-brace
+    HTML ytInitialData / ytInitialPlayerResponse fallback and EU consent bypass
+    cookies.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local instance
+paths:
+  /health:
+    get:
+      summary: Service health, session state, proxy pool and check summary
+      responses:
+        "200":
+          description: OK
+  /v1/session:
+    get:
+      summary: Session configuration and proxy pool state
+      responses:
+        "200":
+          description: Session state
+  /v1/diagnostics:
+    get:
+      summary: Test InnerTube and HTML fallback strategies against a channel handle
+      parameters:
+        - in: query
+          name: handle
+          schema: { type: string, default: "@mkbhd" }
+          example: "@mkbhd"
+      responses:
+        "200":
+          description: Per-strategy results
+        "400":
+          description: Invalid handle
+  /v1/proxies:
+    get:
+      summary: Full startup proxy health check results
+      responses:
+        "200":
+          description: Proxy pool and check results
+  /v1/youtube/{handle}:
+    get:
+      summary: Channel metadata (accepts @handle, handle, or UC... channel ID)
+      parameters:
+        - in: path
+          name: handle
+          required: true
+          schema: { type: string }
+          example: "@mkbhd"
+      responses:
+        "200":
+          description: Channel metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+        "400": { description: Invalid handle or channel ID }
+        "404": { description: Channel not found }
+        "502": { description: All upstream strategies failed }
+  /v1/youtube/{handle}/posts:
+    get:
+      summary: Channel videos and Shorts normalized to API Everything's post shape
+      parameters:
+        - in: path
+          name: handle
+          required: true
+          schema: { type: string }
+          example: "@mkbhd"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 12 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: InnerTube continuation token from previous response's nextCursor.
+      responses:
+        "200":
+          description: Paginated channel videos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle: { type: string, nullable: true }
+                  username: { type: string }
+                  channelId: { type: string, nullable: true }
+                  profile: { $ref: "#/components/schemas/Channel" }
+                  count: { type: integer }
+                  posts:
+                    type: array
+                    items: { $ref: "#/components/schemas/VideoPost" }
+                  nextCursor: { type: string, nullable: true }
+                  hasMore: { type: boolean }
+                  strategy: { type: string }
+                  source: { type: string }
+        "400": { description: Invalid handle or limit }
+        "404": { description: Channel not found }
+        "502": { description: All upstream strategies failed }
+  /v1/youtube/search:
+    get:
+      summary: Keyless YouTube video search with continuation pagination
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+          example: open source
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200":
+          description: Normalized video search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query: { type: string }
+                  count: { type: integer }
+                  videos:
+                    type: array
+                    items: { $ref: "#/components/schemas/VideoPost" }
+                  nextCursor: { type: string, nullable: true }
+                  hasMore: { type: boolean }
+                  strategy: { type: string }
+                  source: { type: string }
+        "400": { description: Missing query or invalid limit }
+  /v1/youtube/videos/{id}:
+    get:
+      summary: Full single-video metadata including chapters and available caption languages
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+          example: dQw4w9WgXcQ
+      responses:
+        "200":
+          description: Video metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoDetail" }
+        "400": { description: Invalid 11-character video ID }
+        "404": { description: Video not found or unavailable }
+  /v1/youtube/videos/{id}/transcript:
+    get:
+      summary: Video caption transcript (JSON3 + TimedText XML fallback)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+          example: dQw4w9WgXcQ
+        - in: query
+          name: lang
+          schema: { type: string, default: en }
+          example: en
+      responses:
+        "200":
+          description: Transcript segments and full text
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transcript" }
+        "400": { description: Invalid video ID or language tag }
+        "404": { description: YT_VIDEO_NOT_FOUND or YT_NO_TRANSCRIPT }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Optional, enforced only when API_KEY is set in .env.
+  schemas:
+    Channel:
+      type: object
+      properties:
+        handle: { type: string, nullable: true, example: "@mkbhd" }
+        username: { type: string, example: mkbhd }
+        channelId: { type: string, nullable: true, example: UCBJycsmduvYEL83R_U4JriQ }
+        url: { type: string, format: uri, nullable: true }
+        fullName: { type: string, nullable: true, example: Marques Brownlee }
+        description: { type: string }
+        subscribers: { type: integer, nullable: true, example: 19800000 }
+        subscribersText: { type: string, nullable: true, example: "19.8M subscribers" }
+        videosCount: { type: integer, nullable: true, example: 1680 }
+        views: { type: integer, nullable: true }
+        avatar: { type: string, format: uri, nullable: true }
+        banner: { type: string, format: uri, nullable: true }
+        isVerified: { type: boolean }
+        country: { type: string, nullable: true }
+        keywords:
+          type: array
+          items: { type: string }
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string, nullable: true }
+              url: { type: string, format: uri }
+        source: { type: string, example: innertube_browse }
+    VideoPost:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        shortcode: { type: string }
+        videoId: { type: string }
+        title: { type: string }
+        userPosted: { type: string, nullable: true }
+        channelId: { type: string, nullable: true }
+        description: { type: string }
+        hashtags:
+          type: array
+          items: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+        views: { type: integer, nullable: true }
+        duration: { type: string, nullable: true, example: "14:28" }
+        durationSeconds: { type: integer, nullable: true, example: 868 }
+        datePosted: { type: string, format: date-time, nullable: true }
+        publishedText: { type: string, nullable: true }
+        likes: { type: integer, nullable: true }
+        numComments: { type: integer, nullable: true }
+        photos:
+          type: array
+          items: { type: string, format: uri }
+        type:
+          type: string
+          enum: [video, short]
+    VideoDetail:
+      type: object
+      properties:
+        videoId: { type: string }
+        url: { type: string, format: uri }
+        title: { type: string }
+        description: { type: string }
+        hashtags:
+          type: array
+          items: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+        channelId: { type: string, nullable: true }
+        author: { type: string, nullable: true }
+        views: { type: integer, nullable: true }
+        likes: { type: integer, nullable: true }
+        durationSeconds: { type: integer, nullable: true }
+        datePosted: { type: string, nullable: true }
+        isLive: { type: boolean }
+        keywords:
+          type: array
+          items: { type: string }
+        chapters:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              timestamp: { type: string }
+              startSeconds: { type: integer }
+              startMs: { type: integer }
+              endSeconds: { type: integer, nullable: true }
+        thumbnails:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string, format: uri }
+              width: { type: integer, nullable: true }
+              height: { type: integer, nullable: true }
+        captionLanguages:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              name: { type: string }
+              isAutoGenerated: { type: boolean }
+        source: { type: string }
+    Transcript:
+      type: object
+      properties:
+        videoId: { type: string }
+        language: { type: string }
+        isAutoGenerated: { type: boolean }
+        availableLanguages:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              name: { type: string }
+              isAutoGenerated: { type: boolean }
+        count: { type: integer }
+        fullText: { type: string }
+        segments:
+          type: array
+          items:
+            type: object
+            properties:
+              text: { type: string }
+              startMs: { type: integer }
+              durationMs: { type: integer }
+        source: { type: string }

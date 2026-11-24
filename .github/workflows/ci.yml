@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [instagram, linkedin, tiktok]
+        connector: [instagram, linkedin, tiktok, youtube]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,7 +34,7 @@ jobs:
         run: bash -n scripts/demo.sh
       - name: Connector contract
         run: |
-          for c in instagram linkedin tiktok; do
+          for c in instagram linkedin tiktok youtube; do
             for f in README.md openapi.yaml .env.example Dockerfile docker-compose.yml package.json; do
               if [ ! -f "socials/$c/$f" ]; then
                 echo "::error::missing socials/$c/$f"
